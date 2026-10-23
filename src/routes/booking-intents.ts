@@ -109,6 +109,9 @@ export function createBookingIntentsRouter(
     // expanding the public request contract.
     captureRequestBody,
     validateBody(CreateBookingIntentBodySchema),
+    // Must run AFTER requireAuthenticatedActor (above): the idempotency
+    // storage key is namespaced by req.auth.userId to prevent cross-user
+    // replay of cached responses (issue #1306).
     idempotencyMiddleware,
     createAuthAwareRateLimiter(),
     auditMiddleware("CREATE_BOOKING_INTENT"),

@@ -2,6 +2,7 @@ import request from "supertest";
 import { jest } from "@jest/globals";
 import { setFeatureFlagsFromEnv } from "../flags/index.js";
 import { setRedisClient, type RedisClient } from "../cache/redisClient.js";
+import { buildIdempotencyStorageKey } from "../middleware/idempotency.js";
 import { defaultAuditLogger } from "../services/auditLogger.js";
 
 type StoredValue = { value: string; expiresAt?: number };
@@ -129,8 +130,14 @@ describe("POST /api/v1/booking-intents idempotency", () => {
     expect(second.status).toBe(201);
     expect(second.body).toEqual(first.body);
 
-    // Ensure idempotency data persisted in Redis for the key
-    const storageKey = `idempotency:req:booking-intent-key-1`;
+    // Ensure idempotency data persisted in Redis for the key, namespaced by
+    // the authenticated principal + method + route (issue #1306).
+    const storageKey = buildIdempotencyStorageKey({
+      principal: "user:customer-123",
+      method: "POST",
+      route: "/api/v1/booking-intents/",
+      idempotencyKey: "booking-intent-key-1",
+    });
     const raw = await redisMock.get(storageKey);
     expect(raw).not.toBeNull();
     const stored = JSON.parse(raw as string);

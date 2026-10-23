@@ -131,6 +131,11 @@ checkoutRouter.post(
   "/sessions",
   ...payloadLimit(ROUTE_PAYLOAD_LIMITS.checkout),
   validateCreateCheckoutSession(),
+  // No auth middleware runs on this route (checkout allows unauthenticated
+  // sessions), so idempotencyMiddleware derives the principal itself: a
+  // verified JWT bearer token when present, otherwise a hashed-IP anonymous
+  // namespace. Keep it after any future auth middleware if one is added
+  // (issue #1306).
   idempotencyMiddleware,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
