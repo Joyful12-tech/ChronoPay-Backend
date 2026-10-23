@@ -15,6 +15,7 @@ import {
   validateSessionIdParam,
 } from "../middleware/checkout-validation.js";
 import { idempotencyMiddleware } from "../middleware/idempotency.js";
+import { optionalJwtAuth } from "../middleware/auth.js";
 import {
   CreateCheckoutSessionResponse,
   GetCheckoutSessionResponse,
@@ -130,6 +131,11 @@ checkoutRouter.use(requireFeatureFlag("CHECKOUT"));
 checkoutRouter.post(
   "/sessions",
   ...payloadLimit(ROUTE_PAYLOAD_LIMITS.checkout),
+  // Auth is optional on this route, but it MUST run before the idempotency
+  // middleware: idempotency namespaces replay state by verified principal so a
+  // shared Idempotency-Key can never replay one caller's cached response to
+  // another. Unauthenticated callers fall back to a hashed-IP scope.
+  optionalJwtAuth,
   validateCreateCheckoutSession(),
   idempotencyMiddleware,
   async (req: Request, res: Response, next: NextFunction) => {

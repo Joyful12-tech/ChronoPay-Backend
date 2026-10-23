@@ -4,7 +4,7 @@ ChronoPay can optionally encrypt idempotency payloads before writing them to Red
 
 ## What is encrypted
 
-- The full idempotency state stored at `idempotency:req:<Idempotency-Key>`.
+- The full idempotency state stored at `idempotency:req:<hash(principal|method|route|key)>` (the key is namespaced per caller and route, then hashed).
 - Both `processing` and `completed` records use the same envelope format when encryption is enabled.
 - The Redis key name is not encrypted.
 

@@ -129,9 +129,13 @@ describe("POST /api/v1/booking-intents idempotency", () => {
     expect(second.status).toBe(201);
     expect(second.body).toEqual(first.body);
 
-    // Ensure idempotency data persisted in Redis for the key
-    const storageKey = `idempotency:req:booking-intent-key-1`;
-    const raw = await redisMock.get(storageKey);
+    // Ensure idempotency data persisted in Redis under a principal-scoped key:
+    // the raw client key alone must never address the entry (cross-caller
+    // replay was possible when it did — issue #1306).
+    const storageKeys = await redisMock.keys("idempotency:req:*");
+    expect(storageKeys).toHaveLength(1);
+    expect(storageKeys[0]).not.toBe("idempotency:req:booking-intent-key-1");
+    const raw = await redisMock.get(storageKeys[0]);
     expect(raw).not.toBeNull();
     const stored = JSON.parse(raw as string);
     expect(stored.status).toBe("completed");

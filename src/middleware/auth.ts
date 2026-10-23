@@ -80,6 +80,50 @@ export function requireAuth(expectedIssuer?: string) {
   };
 }
 
+/**
+ * Best-effort JWT authentication for routes where authentication is OPTIONAL
+ * (e.g. POST /api/v1/checkout/sessions).
+ *
+ * When a valid Bearer token is present it populates `req.auth` (the identity
+ * context read by `requireAuth`, rate limiting, residency waivers and
+ * idempotency principal derivation) exactly like {@link requireAuth}. When the
+ * header is missing — or the token is invalid/expired — the request continues
+ * unauthenticated so the route's own (optional) auth contract is unchanged;
+ * this middleware never rejects.
+ *
+ * Place BEFORE any middleware that derives a principal from the request —
+ * notably `idempotencyMiddleware`, which namespaces replay state by caller
+ * identity so one customer can never receive another customer's cached
+ * response (and so callers behind the same NAT are still separated when they
+ * present a token).
+ */
+export function optionalJwtAuth(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void {
+  const token = readBearerToken(req);
+  if (!token) {
+    next();
+    return;
+  }
+
+  verifyJwt(token, { issuer: configService.jwtIssuer ?? undefined })
+    .then((payload) => {
+      req.auth = {
+        userId: getUserId(payload),
+        role: parseJwtRole(payload.role),
+        claims: payload,
+      };
+      next();
+    })
+    .catch(() => {
+      // Invalid or expired token: treat as anonymous. Authentication remains
+      // optional on this route — we only use verified tokens to scope identity.
+      next();
+    });
+}
+
 // Named export for the header-based auth used by booking-intents
 export { requireAuthenticatedActor as authenticateToken };
 
