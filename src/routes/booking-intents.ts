@@ -109,6 +109,10 @@ export function createBookingIntentsRouter(
     // expanding the public request contract.
     captureRequestBody,
     validateBody(CreateBookingIntentBodySchema),
+    // Ordering requirement: authentication must run before idempotency so the
+    // replay cache is namespaced by the verified principal (req.auth.userId);
+    // otherwise identical Idempotency-Keys from different customers could
+    // collide and replay each other's responses.
     idempotencyMiddleware,
     createAuthAwareRateLimiter(),
     auditMiddleware("CREATE_BOOKING_INTENT"),

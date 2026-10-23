@@ -66,6 +66,16 @@ describe("POST /api/v1/checkout/sessions", () => {
     expect(res.body.checkoutUrl).toContain(res.body.session.id);
   });
 
+  it("treats an invalid Bearer token as anonymous (auth stays optional)", async () => {
+    const res = await request(app)
+      .post("/api/v1/checkout/sessions")
+      .set(JSON_CT)
+      .set("Authorization", "Bearer not-a-valid-jwt")
+      .send(validBody);
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+  });
+
   it("returns 400 when payment object is missing", async () => {
     const res = await request(app)
       .post("/api/v1/checkout/sessions")

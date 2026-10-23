@@ -12,14 +12,44 @@ Idempotency-Key: req_12345
 
 ## Strong Idempotency Binding
 
-To prevent **cross-endpoint replay confusion**, an idempotency key is tightly bound to three elements:
-1. **Request Method** (e.g., `POST`)
-2. **Request Path** (e.g., `/api/v1/slots`)
-3. **Payload Hash** (Deterministic SHA-256 hash of the JSON body)
+An idempotency key is tightly bound to the **caller principal**, the **request method**, the **matched route** and the **payload**:
+
+1. **Principal** — the verified caller identity (see [Principal scoping](#principal-scoping-scoped-storage-keys))
+2. **Request Method** (e.g., `POST`)
+3. **Route** (e.g., `/api/v1/booking-intents`)
+4. **Payload Hash** (Deterministic SHA-256 hash of the JSON body)
+
+The Redis storage key is derived as `idempotency:req:<sha256(principal | method | route | key)>`, so entries are per-caller and per-endpoint; hashing bounds the key length and keeps principals and raw client keys out of Redis key names.
 
 ### Rejection Scenarios
-- **Endpoint Mismatch (409 Conflict)**: If a client reuses the same `Idempotency-Key` for a different route or HTTP method, the server will deterministically reject it with a `409 Conflict`.
-- **Payload Mismatch (422 Unprocessable Entity)**: If the client sends the same key to the same route but alters the request body, the server will return a `422 Unprocessable Entity`.
+- **Cross-endpoint / cross-caller reuse**: the same `Idempotency-Key` on a different route or from a different principal resolves to a *separate* storage entry — each caller gets their own fresh response instead of a collision.
+- **Payload Mismatch (422 Unprocessable Entity)**: If the client sends the same key to the same route as the same caller but alters the request body, the server will return a `422 Unprocessable Entity`.
+
+## Principal scoping (scoped storage keys)
+
+The storage key is namespaced by the caller principal so a cached response can
+never be replayed to another tenant (this was a cross-tenant data-disclosure
+risk: clients often pick predictable keys such as order ids or counters).
+
+Principal priority (first match wins):
+
+1. `req.auth?.userId` — set by the route's authentication middleware
+2. `req.user?.sub || req.user?.id` — verified JWT payload
+3. `req.apiKeyId` — API-key authentication
+4. Hashed client IP — anonymous callers (retries from the same caller still replay)
+
+Only **verified authentication context** is read — never raw client headers.
+
+### Ordering requirement
+
+`idempotencyMiddleware` must be mounted **after** authentication on every route:
+
+| Route | Ordering |
+| --- | --- |
+| `POST /api/v1/booking-intents` | `requireAuthenticatedActor` → `idempotencyMiddleware` |
+| `POST /api/v1/checkout/sessions` | `optionalJwtAuth` → `idempotencyMiddleware` (auth is optional; unauthenticated callers fall back to hashed-IP scope) |
+
+If it runs before authentication, the principal falls back to a hashed client IP and two authenticated callers sharing a NAT/proxy address could still collide on the same key.
 
 ## Security Assumptions
 
@@ -35,6 +65,10 @@ The middleware behavior is covered by `src/middleware/__tests__/idempotency.test
 
 - Replay of stored responses for identical retries
 - `422` payload mismatch for same key and different body hash
+- Principal scoping: two users with the same key and body each get their own fresh response (regression test for cross-user replay)
+- Same user + same key + same body still replays from cache
+- Same key on two different routes does not collide
+- Anonymous callers are isolated by hashed IP while same-caller replay is preserved
 - Concurrency guard (`409`) so concurrent first-requests with same key do not both execute
 - Missing-key pass-through behavior
 - Expired-key behavior (treated as a new request)
